@@ -1,3 +1,5 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,21 +10,25 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
-import google.generativeai as genai
-import requests
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import nltk
 
-# Download VADER lexicon
+# For News and Sentiment Analysis
+import requests
+from bs4 import BeautifulSoup
+import google.generativeai as genai
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
 nltk.download('vader_lexicon')
 
+# ✅ Add your Gemini API Key here
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # <-- REPLACE with your Gemini key
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-pro')
+
+# ------------------------------------
 # Streamlit UI setup
 st.set_page_config(page_title="Stock Price Prediction", layout="wide")
-st.title("\U0001F4C8 Real-time Stock Price Prediction using LSTM")
-
-# API Key Configuration
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-news_api_key = st.secrets["NEWS_API_KEY"]
+st.title("📈 Real-time Stock Price Prediction with Sentiment Analysis")
 
 # User input for stock ticker
 ticker = st.text_input("Enter Stock Ticker Symbol (e.g., AAPL, TSLA, GOOG):", "AAPL").upper()
@@ -30,22 +36,59 @@ ticker = st.text_input("Enter Stock Ticker Symbol (e.g., AAPL, TSLA, GOOG):", "A
 # User input for prediction days
 future_days = st.slider("Select number of days to predict:", min_value=1, max_value=30, value=7)
 
-# Fetch real-time stock data
-st.sidebar.subheader("Fetching Data...")
+# ------------------------------------
+# ✅ Function to Fetch Real-Time News
+def fetch_stock_news(stock_name):
+    search_url = f"https://news.google.com/search?q={stock_name}%20stock&hl=en&gl=US&ceid=US:en"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(search_url, headers=headers)
+    
+    if response.status_code != 200:
+        return []
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+    news_items = soup.find_all('h3')
+
+    news_data = []
+    for item in news_items[:5]:  # Top 5 news articles
+        title = item.text
+        link = "https://news.google.com" + item.a['href'][1:]
+        news_data.append((title, link))
+    
+    return news_data
+
+# ✅ Function to Analyze Sentiment
+def analyze_sentiment(news_text):
+    sia = SentimentIntensityAnalyzer()
+    sentiment_scores = sia.polarity_scores(news_text)
+    return sentiment_scores
+
+# ✅ Function to Get Insights using Gemini
+def get_gemini_insights(news_text):
+    prompt = f"Summarize the following stock news and provide key takeaways:\n\n{news_text}"
+    try:
+        response = gemini_model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Error fetching insights: {e}"
+
+# ------------------------------------
+# ✅ Fetch real-time stock data
 if ticker:
+    st.sidebar.subheader("Fetching Data...")
     stock_data = yf.download(ticker, period="2y")
 
     if stock_data.empty:
         st.sidebar.error("Invalid Ticker! Please enter a valid stock symbol.")
     else:
         st.sidebar.success(f"Data for {ticker} loaded successfully!")
-        
-        # Data Preprocessing
+
+        # ✅ Preprocessing Data
         stock_data = stock_data[['Close']].copy()
         scaler = MinMaxScaler(feature_range=(0, 1))
         stock_data['Scaled_Close'] = scaler.fit_transform(stock_data[['Close']])
 
-        # Prepare data for LSTM
+        # ✅ Prepare data for LSTM
         def create_sequences(data, time_step=50):
             X, Y = [], []
             for i in range(len(data) - time_step - 1):
@@ -62,11 +105,11 @@ if ticker:
         X_train, Y_train = X[:train_size], Y[:train_size]
         X_test, Y_test = X[train_size:], Y[train_size:]
 
-        # Reshape for LSTM
+        # Reshape data for LSTM
         X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
         X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
 
-        # Build LSTM Model
+        # ✅ Build LSTM Model
         model = Sequential([
             LSTM(50, return_sequences=True, input_shape=(time_step, 1)),
             LSTM(50, return_sequences=False),
@@ -75,27 +118,26 @@ if ticker:
         ])
         model.compile(optimizer='adam', loss='mean_squared_error')
 
-        # Train the Model
+        # ✅ Train Model
         with st.spinner("Training LSTM Model... ⏳"):
             model.fit(X_train, Y_train, epochs=10, batch_size=16, verbose=0)
 
-        # Predictions
+        # ✅ Predictions
         Y_pred = model.predict(X_test)
         Y_pred = scaler.inverse_transform(Y_pred.reshape(-1, 1))
         Y_test = scaler.inverse_transform(Y_test.reshape(-1, 1))
 
-        # Accuracy Metrics
+        # ✅ Accuracy Metrics
         mse = mean_squared_error(Y_test, Y_pred)
         mae = mean_absolute_error(Y_test, Y_pred)
         r2 = r2_score(Y_test, Y_pred)
 
-        # Display Metrics
-        st.subheader("\U0001F4CA Model Accuracy Metrics")
-        st.write(f"\U0001F539 *Mean Squared Error (MSE):* {mse:.4f}")
-        st.write(f"\U0001F539 *Mean Absolute Error (MAE):* {mae:.4f}")
-        st.write(f"\U0001F539 *R² Score:* {r2:.4f}")
+        st.subheader("📊 Model Accuracy Metrics")
+        st.write(f"🔹 MSE: {mse:.4f}")
+        st.write(f"🔹 MAE: {mae:.4f}")
+        st.write(f"🔹 R² Score: {r2:.4f}")
 
-        # Future Prediction
+        # ✅ Future Prediction
         def predict_future_prices(model, last_50_days, future_days):
             future_predictions = []
             current_input = last_50_days.reshape(1, -1, 1)
@@ -110,73 +152,27 @@ if ticker:
         last_50_days = dataset[-time_step:]
         future_prices = predict_future_prices(model, last_50_days, future_days)
 
-        # Display Future Predictions
         future_dates = pd.date_range(stock_data.index[-1] + pd.Timedelta(days=1), periods=future_days)
         future_df = pd.DataFrame({'Date': future_dates, 'Predicted_Close': future_prices.flatten()})
-        st.subheader(f"\U0001F4C5 Predicted Stock Prices for Next {future_days} Days")
         st.dataframe(future_df)
 
-        # Plot Actual vs Predicted
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=stock_data.index[-len(Y_test):], y=Y_test.flatten(),
-                                 mode='lines', name='Actual Price', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=stock_data.index[-len(Y_test):], y=Y_pred.flatten(),
-                                 mode='lines', name='Predicted Price', line=dict(color='red', dash='dot')))
-        fig.update_layout(title=f"Actual vs Predicted Prices ({ticker})",
-                          xaxis_title="Date", yaxis_title="Stock Price (USD)")
-        st.plotly_chart(fig)
-
-        # Plot Future Predictions
-        fig_future = go.Figure()
-        fig_future.add_trace(go.Scatter(x=future_df['Date'], y=future_df['Predicted_Close'],
-                                        mode='lines+markers', name='Future Predictions', line=dict(color='green')))
-        fig_future.update_layout(title=f"Future Stock Price Predictions ({ticker})",
-                                 xaxis_title="Date", yaxis_title="Predicted Price (USD)")
-        st.plotly_chart(fig_future)
-
-        # ------------------- NEWS + SENTIMENT ------------------
-        st.subheader(f"\U0001F4F0 Latest News for {ticker}")
-
-        def fetch_stock_news(stock_name):
-            url = f"https://newsapi.org/v2/everything?q={stock_name}&language=en&sortBy=publishedAt&apiKey={news_api_key}"
-            response = requests.get(url)
-            if response.status_code != 200:
-                return []
-            articles = response.json().get("articles", [])
-            news_data = []
-            for article in articles[:5]:
-                title = article["title"]
-                link = article["url"]
-                news_data.append((title, link))
-            return news_data
-
+        # ✅ Fetch and Display News + Sentiment Analysis
         news_articles = fetch_stock_news(ticker)
 
         if news_articles:
             all_news_text = "\n".join([title for title, link in news_articles])
-            sia = SentimentIntensityAnalyzer()
-            sentiment = sia.polarity_scores(all_news_text)
+            insights = get_gemini_insights(all_news_text)
+            sentiment = analyze_sentiment(all_news_text)
 
-            # Gemini Insights
-            try:
-                gemini_model = genai.GenerativeModel('gemini-pro')
-                prompt = f"Summarize the following stock news and provide key takeaways:\n\n{all_news_text}"
-                response = gemini_model.generate_content(prompt)
-                insights = response.text
-            except Exception as e:
-                insights = f"Error fetching insights: {e}"
-
-            for title, link in news_articles:
-                st.write(f"\U0001F4F0 [{title}]({link})")
-
-            st.subheader("\U0001F4CA Sentiment Analysis:")
-            st.write(f"\U0001F539 Compound Score: {sentiment['compound']:.2f}")
-            st.write(f"\U0001F539 Positive: {sentiment['pos']*100:.2f}% | Neutral: {sentiment['neu']*100:.2f}% | Negative: {sentiment['neg']*100:.2f}%")
-            
+            # ✅ Risk Calculation
             risk_percentage = (1 - (sentiment['compound'] + 1) / 2) * 100
-            st.write(f"\u26A0 Risk Percentage: {risk_percentage:.2f}%")
 
-            st.subheader("\U0001F4DD Gemini Insights:")
-            st.write(insights)
-        else:
-            st.warning("No recent news found!")
+            st.subheader("📰 Latest News and Sentiment")
+            for title, link in news_articles:
+                st.markdown(f"🔗 [{title}]({link})")
+
+            st.write(f"📊 *Gemini Insights:* {insights}")
+            st.write(f"👍 Positive: {sentiment['pos']*100:.2f}% | 😐 Neutral: {sentiment['neu']*100:.2f}% | 👎 Negative: {sentiment['neg']*100:.2f}%")
+            st.write(f"⚠ *Risk Percentage:* {risk_percentage:.2f}%")
+
+# ✅ Run using: streamlit run app.py
