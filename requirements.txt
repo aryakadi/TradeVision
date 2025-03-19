@@ -7,6 +7,6 @@ plotly
 scikit-learn
 tensorflow
 nltk
-beautifulsoup4
 requests
+beautifulsoup4
 google-generativeai
