@@ -6,7 +6,3 @@ matplotlib
 plotly
 scikit-learn
 tensorflow
-beautifulsoup4
-requests
-nltk
-google-generativeai
