@@ -1,6 +1,8 @@
 streamlit
 pandas
-requests
-nltk
-transformers
-torch
+numpy
+yfinance
+matplotlib
+plotly
+scikit-learn
+tensorflow
