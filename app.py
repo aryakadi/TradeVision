@@ -21,7 +21,7 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 nltk.download('vader_lexicon')
 
 # ✅ Add your Gemini API Key here
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # <-- REPLACE with your Gemini key
+GEMINI_API_KEY = "AIzaSyCN04ZkiII0AVSu6VUCXsH1wbJwR0bV1IM"  # <-- REPLACE with your Gemini key
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel('gemini-pro')
 
